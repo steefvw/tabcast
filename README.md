@@ -10,9 +10,7 @@ This project is intentionally small and is best suited to personal or low-scale 
 
 ## Typical Uses
 
-Tab Cast works well for demos, presentations, second-screen viewing, browser-based support or testing, and lightweight stream recording.
-
-It is especially handy when the sender can join from a simple link and the receiver needs to display or optionally record what is being shared.
+Tab Cast works well for demos, presentations, second-screen viewing, browser-based support or testing, and recording.
 
 ## How It Works
 
