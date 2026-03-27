@@ -173,3 +173,7 @@ See [LEGAL_NOTICE.md](./LEGAL_NOTICE.md) for the full notice.
 ## Project Scope
 
 This repository contains only the current WebRTC-based implementation. Earlier experimental Chromecast-emulation work has been removed from the published project to keep the codebase focused and easier to maintain.
+
+## Development Note
+
+This repository was developed with Claude Code (Opus 4.6) and Codex (GPT-5.4).
