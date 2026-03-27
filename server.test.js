@@ -178,12 +178,40 @@ test("keeps the latest receiver active when an older one disconnects", async (t)
   t.after(() => secondReceiver.close());
   assert.deepEqual(await secondReady, { type: "receiver-ready" });
 
-  await waitForClose(firstReceiver);
-
   const forwardedMessage = waitForJsonMessage(secondReceiver);
   sender.send(JSON.stringify({ type: "offer", sdp: "latest-only" }));
 
   assert.deepEqual(await forwardedMessage, { type: "offer", sdp: "latest-only" });
+});
+
+test("ignores signaling from a superseded receiver", async (t) => {
+  const { relay, wsBase } = await startServer();
+  t.after(() => stopServer(relay));
+
+  const sender = new WebSocket(`${wsBase}/?role=sender`);
+  await once(sender, "open");
+  t.after(() => sender.close());
+
+  const firstReceiver = await connectClient(`${wsBase}/?role=receiver`);
+  await waitForJsonMessage(sender);
+
+  const secondReceiver = await connectClient(`${wsBase}/?role=receiver`);
+  await waitForJsonMessage(sender);
+
+  t.after(() => firstReceiver.close());
+  t.after(() => secondReceiver.close());
+
+  const senderMessages = [];
+  sender.on("message", (data) => {
+    senderMessages.push(JSON.parse(data.toString()));
+  });
+
+  firstReceiver.send(JSON.stringify({ type: "answer", sdp: "stale-answer" }));
+  secondReceiver.send(JSON.stringify({ type: "answer", sdp: "live-answer" }));
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.deepEqual(senderMessages, [{ type: "answer", sdp: "live-answer" }]);
 });
 
 test("rejects clients with the wrong session token and accepts the right one", async (t) => {

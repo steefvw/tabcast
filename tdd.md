@@ -12,7 +12,7 @@ Sender Browser ──WebSocket──▶ ngrok ──▶ Node Server ◀──Web
 
 ## Server (`server.js`)
 
-Minimal Express + WebSocket relay. Tracks exactly one `sender` and one `receiver` by the `?role=` query param. Every message from one role is forwarded to the other. On disconnect, the peer is notified (`sender-disconnected` / `receiver-disconnected`).
+Minimal Express + WebSocket relay. Validates the `?role=` query param, optionally enforces a shared `?token=`, and tracks exactly one active `sender` and one active `receiver`. If older sender/receiver sockets remain connected, their signaling is ignored so only the current peers can affect the session. On disconnect, the peer is notified (`sender-disconnected` / `receiver-disconnected`).
 
 ## Sender (`send.html`)
 

@@ -56,17 +56,11 @@ function createRelayServer(options = {}) {
     console.log(`[ws] ${role} connected (total clients: ${wss.clients.size})`);
 
     if (role === "receiver") {
-      if (receiver && receiver !== ws) {
-        receiver.close(1000, "Replaced by newer receiver");
-      }
       receiver = ws;
       if (sendJson(sender, { type: "receiver-ready" })) {
         console.log("[ws] Notified sender: receiver-ready");
       }
     } else if (role === "sender") {
-      if (sender && sender !== ws) {
-        sender.close(1000, "Replaced by newer sender");
-      }
       sender = ws;
       if (sendJson(sender, { type: "receiver-ready" })) {
         console.log("[ws] Notified sender: receiver-ready");
@@ -74,6 +68,16 @@ function createRelayServer(options = {}) {
     }
 
     ws.on("message", (raw) => {
+      if (role === "sender" && ws !== sender) {
+        console.log("[ws] Ignoring message from stale sender");
+        return;
+      }
+
+      if (role === "receiver" && ws !== receiver) {
+        console.log("[ws] Ignoring message from stale receiver");
+        return;
+      }
+
       let msg;
       try {
         msg = JSON.parse(raw.toString());
