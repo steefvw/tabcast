@@ -2,7 +2,7 @@
 
 Tab Cast is a lightweight way to put a browser tab on another screen.
 
-It streams video and audio from the sender's tab to a receiver page, with the sender starting from a simple link.
+It streams video and audio from the sender's tab to a receiver page, with an option to record the stream and a simple link for the sender to join.
 
 ## Status
 
