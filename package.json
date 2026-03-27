@@ -1,0 +1,33 @@
+{
+  "name": "tabcast",
+  "version": "1.0.0",
+  "description": "Share a Chrome browser tab to a receiver browser on another device via WebRTC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/steefvw/tabcast.git"
+  },
+  "bugs": {
+    "url": "https://github.com/steefvw/tabcast/issues"
+  },
+  "homepage": "https://github.com/steefvw/tabcast#readme",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "webrtc",
+    "screen-sharing",
+    "tab-sharing",
+    "casting",
+    "browser"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  }
+}

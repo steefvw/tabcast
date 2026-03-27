@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tab Cast — Receiver</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📺</text></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #idle-screen {
+      text-align: center;
+      transition: opacity 0.5s;
+    }
+    #idle-screen h1 {
+      font-size: 3rem;
+      font-weight: 300;
+      margin-bottom: 0.5rem;
+    }
+    #idle-screen p {
+      font-size: 1.2rem;
+      color: #888;
+    }
+    .status {
+      margin-top: 2rem;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot.red { background: #f44336; }
+    .dot.yellow { background: #ff9800; }
+    .dot.green { background: #4caf50; }
+    .dot.blue { background: #2196f3; animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .url-hint {
+      margin-top: 1.5rem;
+      font-size: 0.85rem;
+      color: #666;
+    }
+    .url-hint code {
+      background: #222;
+      padding: 4px 10px;
+      border-radius: 4px;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    #video-container {
+      position: fixed;
+      inset: 0;
+      display: none;
+      background: #000;
+      align-items: center;
+      justify-content: center;
+    }
+    #video-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* Recording controls */
+    #controls {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      display: none;
+      gap: 8px;
+      align-items: center;
+      z-index: 10;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+    #controls:hover { opacity: 1; }
+
+    #rec-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    #rec-btn .inner {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #e63946;
+      transition: all 0.2s;
+    }
+    #rec-btn.recording .inner {
+      border-radius: 4px;
+      width: 16px;
+      height: 16px;
+    }
+    #rec-indicator {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: rgba(230, 57, 70, 0.85);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    #rec-indicator .rec-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fff;
+      animation: pulse 1s infinite;
+    }
+  </style>
+</head>
+<body>
+
+<div id="start-screen" style="text-align:center">
+  <h1 style="font-size:3rem;font-weight:300;margin-bottom:1rem">Tab Cast</h1>
+  <button id="ready-btn" style="background:#4361ee;color:#fff;border:none;padding:14px 36px;font-size:1.1rem;border-radius:8px;cursor:pointer">Start Receiver</button>
+</div>
+
+<div id="idle-screen" style="display:none">
+  <h1>Tab Cast</h1>
+  <p>Waiting for a tab to be shared</p>
+  <div class="status">
+    <span class="dot" id="dot"></span>
+    <span id="status-text">Connecting...</span>
+  </div>
+  <div class="url-hint">
+    Open the sender from another device:<br>
+    <code id="sender-url"></code>
+  </div>
+</div>
+
+<div id="video-container">
+  <video id="video" autoplay playsinline></video>
+</div>
+
+<div id="controls">
+  <div id="rec-indicator">
+    <span class="rec-dot"></span>
+    <span id="rec-time">00:00</span>
+  </div>
+  <button id="rec-btn" title="Record"><span class="inner"></span></button>
+</div>
+
+<script>
+  const idleScreen = document.getElementById('idle-screen');
+  const videoContainer = document.getElementById('video-container');
+  const video = document.getElementById('video');
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const senderUrl = document.getElementById('sender-url');
+  const controls = document.getElementById('controls');
+  const recBtn = document.getElementById('rec-btn');
+  const recIndicator = document.getElementById('rec-indicator');
+  const recTime = document.getElementById('rec-time');
+
+  const startScreen = document.getElementById('start-screen');
+  const readyBtn = document.getElementById('ready-btn');
+  const sessionToken = new URLSearchParams(location.search).get('token') || '';
+  const recordingSupported =
+    typeof window.MediaRecorder !== 'undefined' &&
+    typeof MediaRecorder.isTypeSupported === 'function' &&
+    typeof video.captureStream === 'function';
+
+  senderUrl.textContent = sessionToken
+    ? `${location.origin}/send.html?token=${encodeURIComponent(sessionToken)}`
+    : `${location.origin}/send.html`;
+
+  let ws;
+  let pc;
+  let incomingStream = null;
+
+  readyBtn.onclick = () => {
+    startScreen.style.display = 'none';
+    idleScreen.style.display = '';
+    connect();
+  };
+
+  // ── Recording state ──
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recStartTime = 0;
+  let recTimer = null;
+
+  function setStatus(color, text) {
+    dot.className = `dot ${color}`;
+    statusText.textContent = text;
+  }
+
+  function formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    const mm = String(m % 60).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  // ── Recording ──
+
+  let wantRecording = false;
+  let recorderMimeType = 'video/webm';
+
+  if (!recordingSupported) {
+    controls.style.display = 'none';
+    recBtn.disabled = true;
+    recBtn.title = 'Recording is not supported in this browser';
+  } else {
+    // Pick best available codec (only need to do this once)
+    const mimeTypes = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+    for (const mt of mimeTypes) {
+      if (MediaRecorder.isTypeSupported(mt)) { recorderMimeType = mt; break; }
+    }
+  }
+
+  function launchRecorder() {
+    if (!recordingSupported) return;
+
+    // Record from the video element's capture stream, not the raw WebRTC stream.
+    // captureStream() persists across ICE reconnections.
+    const captureStream = video.captureStream();
+
+    mediaRecorder = new MediaRecorder(captureStream, {
+      mimeType: recorderMimeType || undefined,
+      videoBitsPerSecond: 5_000_000,
+    });
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.onerror = (e) => {
+      console.error('MediaRecorder error:', e.error?.name, e.error?.message);
+    };
+
+    mediaRecorder.onstop = () => {
+      console.log('MediaRecorder stopped, wantRecording:', wantRecording, 'chunks so far:', recordedChunks.length);
+
+      if (wantRecording && video.srcObject) {
+        // Auto-stopped (e.g. capture stream tracks ended during ICE restart).
+        // Restart the recorder — chunks are preserved across restarts.
+        console.log('Auto-restarting recorder after ICE reconnection...');
+        setTimeout(() => {
+          if (wantRecording && video.srcObject) {
+            launchRecorder();
+          }
+        }, 1000);
+        return;
+      }
+
+      // User manually stopped — save the file
+      if (recordedChunks.length === 0) return;
+      const blob = new Blob(recordedChunks, { type: recorderMimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ext = recorderMimeType.includes('webm') ? 'webm' : 'mp4';
+      a.href = url;
+      a.download = `recording-${new Date().toISOString().slice(0,19).replace(/[T:]/g, '-')}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      recordedChunks = [];
+      mediaRecorder = null;
+    };
+
+    mediaRecorder.start(1000);
+    console.log('MediaRecorder started');
+  }
+
+  function startRecording() {
+    if (!recordingSupported) return;
+    if (!video.srcObject) return;
+    recordedChunks = [];
+    wantRecording = true;
+    launchRecorder();
+    recStartTime = Date.now();
+    recBtn.classList.add('recording');
+    recIndicator.style.display = 'flex';
+    recTimer = setInterval(() => {
+      recTime.textContent = formatTime(Date.now() - recStartTime);
+    }, 500);
+  }
+
+  function stopRecording(reason) {
+    console.log('stopRecording called, reason:', reason, 'stack:', new Error().stack);
+    wantRecording = false;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop(); // onstop fires async and handles the download
+    } else {
+      mediaRecorder = null;
+    }
+    recBtn.classList.remove('recording');
+    recIndicator.style.display = 'none';
+    clearInterval(recTimer);
+    recTimer = null;
+    recTime.textContent = '00:00';
+  }
+
+  recBtn.onclick = () => {
+    if (!recordingSupported) return;
+    if (wantRecording) {
+      stopRecording('user-clicked');
+    } else {
+      startRecording();
+    }
+  };
+
+  // Keep video playing (download dialogs and focus changes can pause it)
+  video.onpause = () => {
+    if (video.srcObject) video.play().catch(() => {});
+  };
+
+  // ── WebSocket signaling ──
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const params = new URLSearchParams({ role: 'receiver' });
+    if (sessionToken) params.set('token', sessionToken);
+    ws = new WebSocket(`${proto}//${location.host}?${params.toString()}`);
+
+    ws.onopen = () => {
+      setStatus('green', 'Connected — waiting for sender');
+    };
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+
+      switch (msg.type) {
+        case 'offer':
+          handleOffer(msg);
+          break;
+        case 'ice-candidate':
+          handleIceCandidate(msg);
+          break;
+        case 'sender-disconnected':
+          // Don't stop — sender's WS may drop and reconnect (e.g. ngrok timeout).
+          // The WebRTC stream and recording should survive this.
+          // If the sender truly left, they won't reconnect and the user can stop manually.
+          console.warn('Sender WS disconnected (waiting for reconnect)');
+          setStatus('yellow', 'Sender reconnecting...');
+          break;
+        case 'cast-stopped':
+          // Sender explicitly stopped casting
+          console.warn('Sender stopped casting');
+          stopPlayback();
+          break;
+      }
+    };
+
+    ws.onclose = (event) => {
+      if (event.code === 1008) {
+        const reason = event.reason || 'Policy violation';
+        setStatus('red', `Connection rejected: ${reason}`);
+        return;
+      }
+
+      setStatus('red', 'Disconnected — reconnecting...');
+      setTimeout(connect, 2000);
+    };
+  }
+
+  // ── WebRTC ──
+
+  let iceRestartTimer = null;
+
+  function requestIceRestart() {
+    if (iceRestartTimer) return; // already scheduled
+    console.log('Requesting ICE restart in 2s...');
+    iceRestartTimer = setTimeout(() => {
+      iceRestartTimer = null;
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'ice-restart' }));
+        console.log('Sent ICE restart request');
+      }
+    }, 2000);
+  }
+
+  async function handleOffer(msg) {
+    const isReconnect = !!pc; // ICE restart = reuse existing pc
+
+    if (!isReconnect) {
+      // Fresh connection
+      incomingStream = new MediaStream();
+      video.srcObject = incomingStream;
+
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          ws.send(JSON.stringify({ type: 'ice-candidate', candidate: e.candidate }));
+        }
+      };
+
+      pc.ontrack = (e) => {
+        console.log('Track received:', e.track.kind);
+
+        // Remove any old ended track of the same kind
+        const oldTrack = incomingStream.getTracks().find(t => t.kind === e.track.kind);
+        if (oldTrack) {
+          incomingStream.removeTrack(oldTrack);
+          console.log('Swapped old', e.track.kind, 'track');
+        }
+
+        incomingStream.addTrack(e.track);
+
+        e.track.onended = () => {
+          console.warn('Track ENDED:', e.track.kind);
+          // Don't remove the ended track — leaving it keeps the video
+          // frozen on the last frame instead of going black.
+          // It will be swapped out when new tracks arrive after ICE restart.
+          requestIceRestart();
+        };
+        e.track.onmute = () => console.warn('Track MUTED:', e.track.kind);
+        e.track.onunmute = () => console.log('Track unmuted:', e.track.kind);
+
+        video.play().then(() => {
+          setStatus('blue', 'Receiving...');
+        }).catch(err => console.error('Play failed:', err));
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log('Connection state:', pc.connectionState);
+        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+          setStatus('yellow', 'Reconnecting...');
+          requestIceRestart();
+        } else if (pc.connectionState === 'connected') {
+          setStatus('blue', 'Receiving...');
+        }
+      };
+    } else {
+      console.log('ICE restart: reusing existing peer connection');
+    }
+
+    videoContainer.style.display = 'flex';
+    controls.style.display = recordingSupported ? 'flex' : 'none';
+    idleScreen.style.display = 'none';
+    setStatus('blue', isReconnect ? 'Reconnecting...' : 'Connecting...');
+
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
+  }
+
+  async function handleIceCandidate(msg) {
+    if (!pc) return;
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    } catch (err) {
+      console.error('ICE candidate error:', err);
+    }
+  }
+
+  function stopPlayback() {
+    // Cancel any pending ICE restart
+    if (iceRestartTimer) {
+      clearTimeout(iceRestartTimer);
+      iceRestartTimer = null;
+    }
+    stopRecording('stopPlayback');
+    if (pc) {
+      pc.close();
+      pc = null;
+    }
+    incomingStream = null;
+    video.srcObject = null;
+    videoContainer.style.display = 'none';
+    controls.style.display = 'none';
+    idleScreen.style.display = '';
+    setStatus('green', 'Connected — waiting for sender');
+  }
+
+</script>
+</body>
+</html>

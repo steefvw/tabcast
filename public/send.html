@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tab Cast — Sender</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📺</text></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      max-width: 480px;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 400;
+      margin-bottom: 0.5rem;
+    }
+    .subtitle {
+      color: #888;
+      margin-bottom: 2rem;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot.red { background: #f44336; }
+    .dot.yellow { background: #ff9800; }
+    .dot.green { background: #4caf50; }
+    .dot.blue { background: #2196f3; animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    button {
+      background: #4361ee;
+      color: white;
+      border: none;
+      padding: 14px 36px;
+      font-size: 1.1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) { background: #3a56d4; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.stop { background: #e63946; }
+    button.stop:hover { background: #c5303c; }
+    .preview {
+      margin-top: 2rem;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+      display: none;
+    }
+    .preview video {
+      width: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Tab Cast</h1>
+  <p class="subtitle">Share a tab to the receiver</p>
+
+  <div class="status">
+    <span class="dot" id="dot"></span>
+    <span id="status-text">Connecting...</span>
+  </div>
+
+  <button id="btn" disabled>Share Tab</button>
+
+  <div class="preview" id="preview">
+    <video id="preview-video" muted autoplay></video>
+  </div>
+</div>
+
+<script>
+  const btn = document.getElementById('btn');
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const preview = document.getElementById('preview');
+  const previewVideo = document.getElementById('preview-video');
+  const sessionToken = new URLSearchParams(location.search).get('token') || '';
+
+  let ws;
+  let pc;
+  let stream;
+  let casting = false;
+
+  function setStatus(color, text) {
+    dot.className = `dot ${color}`;
+    statusText.textContent = text;
+  }
+
+  // ── WebSocket signaling ──
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const params = new URLSearchParams({ role: 'sender' });
+    if (sessionToken) params.set('token', sessionToken);
+    ws = new WebSocket(`${proto}//${location.host}?${params.toString()}`);
+
+    ws.onopen = () => {
+      setStatus('yellow', 'Waiting for receiver...');
+    };
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+
+      switch (msg.type) {
+        case 'receiver-ready':
+          setStatus('green', 'Receiver connected');
+          btn.disabled = false;
+          // If we were already casting, auto-send a new offer (receiver reconnected)
+          if (casting && stream) sendOffer();
+          break;
+        case 'receiver-disconnected':
+          setStatus('yellow', 'Waiting for receiver...');
+          // Don't stopCasting() — keep the stream alive.
+          // When receiver reconnects we'll get 'receiver-ready' and auto-resend offer.
+          break;
+        case 'answer':
+          handleAnswer(msg);
+          break;
+        case 'ice-candidate':
+          handleIceCandidate(msg);
+          break;
+        case 'ice-restart':
+          handleIceRestart();
+          break;
+      }
+    };
+
+    ws.onclose = (event) => {
+      if (event.code === 1008) {
+        const reason = event.reason || 'Policy violation';
+        setStatus('red', `Connection rejected: ${reason}`);
+        btn.disabled = true;
+        return;
+      }
+
+      setStatus('red', 'Disconnected — reconnecting...');
+      btn.disabled = true;
+      setTimeout(connect, 2000);
+    };
+  }
+
+  // ── WebRTC ──
+
+  function setupPeerConnection() {
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    stream.getTracks().forEach(track => {
+      pc.addTrack(track, stream);
+    });
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        ws.send(JSON.stringify({ type: 'ice-candidate', candidate: e.candidate }));
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        setStatus('blue', 'Casting...');
+      }
+    };
+  }
+
+  async function sendOffer(iceRestart = false) {
+    if (!stream) return;
+
+    if (!pc) {
+      setupPeerConnection();
+    } else if (iceRestart) {
+      // ICE restart must use the EXISTING peer connection — don't close it.
+      // Creating a new pc would lose the iceRestart semantics and the tracks.
+      console.log('Performing ICE restart on existing connection');
+    }
+
+    const offer = await pc.createOffer({ iceRestart });
+    await pc.setLocalDescription(offer);
+    ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+    console.log(iceRestart ? 'Sent ICE restart offer' : 'Sent offer');
+  }
+
+  async function handleIceRestart() {
+    if (!casting || !stream) return;
+    console.log('Receiver requested ICE restart');
+    await sendOffer(true);
+  }
+
+  async function startCasting() {
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' },
+        audio: true,
+      });
+    } catch (err) {
+      console.log('User cancelled tab selection');
+      return;
+    }
+
+    // Show local preview
+    previewVideo.srcObject = stream;
+    preview.style.display = 'block';
+
+    // When the user stops sharing via the browser's built-in button
+    stream.getVideoTracks()[0].onended = () => stopCasting();
+
+    await sendOffer();
+
+    casting = true;
+    btn.textContent = 'Stop Casting';
+    btn.className = 'stop';
+  }
+
+  function stopCasting() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    if (pc) {
+      pc.close();
+      pc = null;
+    }
+    previewVideo.srcObject = null;
+    preview.style.display = 'none';
+
+    casting = false;
+    btn.textContent = 'Share Tab';
+    btn.className = '';
+
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'cast-stopped' }));
+      setStatus('green', 'Receiver connected');
+    }
+  }
+
+  async function handleAnswer(msg) {
+    if (!pc) return;
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }));
+  }
+
+  async function handleIceCandidate(msg) {
+    if (!pc) return;
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    } catch (err) {
+      console.error('ICE candidate error:', err);
+    }
+  }
+
+  btn.onclick = () => {
+    if (casting) {
+      stopCasting();
+    } else {
+      startCasting();
+    }
+  };
+
+  connect();
+</script>
+</body>
+</html>
