@@ -8,17 +8,11 @@ It streams video and audio from the sender's tab to a receiver page, with an opt
 
 This project is intentionally small and is best suited to personal or low-scale use. Media flows peer-to-peer between browsers; the Node server only relays signaling messages.
 
-## Authorized Use Cases
+## Typical Uses
 
-Examples of legitimate uses include:
+Tab Cast works well for demos, presentations, second-screen viewing, browser-based support or testing, and lightweight stream recording.
 
-- Presenting a dashboard, document, or web app from a laptop to a TV or secondary display in the same room
-- Sharing a browser-based demo with a second device during product reviews, customer calls, or live walkthroughs
-- Viewing a browser tab on a low-friction receiver device without installing extra sender-side software
-- Temporary second-screen viewing for personal use, such as monitoring a web page from another room
-- Browser-based testing, QA, or support sessions where the operator is authorized to display the shared content
-
-The common thread is simple: use Tab Cast only for content and environments where you already have permission to display, share, and, if applicable, record what is on screen.
+It is especially handy when the sender can join from a simple link and the receiver needs to display or optionally record what is being shared.
 
 ## How It Works
 
