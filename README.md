@@ -2,7 +2,7 @@
 
 Tab Cast shares a browser tab from one browser to another device using WebRTC, with a tiny Node/WebSocket relay for signaling and optional local recording on the receiver.
 
-It is designed for situations where the sender side only needs a modern browser and a URL.
+Tab Cast makes it easy to share the contents of a browser tab, including video and audio, to a receiver on the same device or another device, with the sender joining through a simple link.
 
 ## Status
 
